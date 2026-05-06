@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
+use rand::prelude::*;
 
 #[derive(Component)]
 struct Player;
@@ -12,6 +13,12 @@ struct Wall;
 
 #[derive(Component)]
 struct Ball;
+
+#[derive(Resource)]
+struct BallConfig {
+    speed: f32,
+    size: f32,
+}
 
 fn main() {
     let mut app = App::new();
@@ -28,6 +35,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    let mut rng = rand::rng();
     commands
         .spawn(MainCamera)
         .insert(Camera2d)
@@ -59,11 +67,22 @@ fn setup(
         .insert(MeshMaterial2d(materials.add(Color::WHITE)))
         .insert(Transform::from_xyz(0., 125., 0.));
 
+    let launch_ball_right = rng.random_bool(0.5);
+    let launch_impulse_dir = if launch_ball_right {
+        Vec2::new(1., 0.)
+    } else {
+        Vec2::new(-1., 0.)
+    };
     commands
         .spawn(Ball)
         .insert(RigidBody::Dynamic)
-        .insert(GravityScale::default())
+        .insert(GravityScale(0.))
+        .insert(ExternalImpulse {
+            impulse: launch_impulse_dir * 40.,
+            torque_impulse: 0.,
+        })
         .insert(Collider::ball(2.5))
+        .insert(ColliderMassProperties::Mass(0.56))
         .insert(Mesh2d(meshes.add(Circle::new(2.5))))
         .insert(MeshMaterial2d(materials.add(Color::WHITE)))
         .insert(Transform::from_xyz(0., 0., 0.));
