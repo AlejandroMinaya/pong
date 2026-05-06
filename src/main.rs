@@ -32,6 +32,11 @@ struct PaddleConfig {
     padding: f32,
 }
 
+#[derive(Resource)]
+struct PlayerConfig {
+    speed: f32,
+}
+
 fn main() {
     let mut app = App::new();
 
@@ -47,9 +52,11 @@ fn main() {
             width: 5.0,
             padding: 5.0,
         })
+        .insert_resource(PlayerConfig { speed: 5.0 })
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
+        .add_systems(Update, move_paddle)
         .run();
 }
 
@@ -130,6 +137,7 @@ fn setup(
 
     commands
         .spawn(Player)
+        .insert(KinematicCharacterController::default())
         .insert(Paddle)
         .insert(RigidBody::KinematicPositionBased)
         .insert(Collider::cuboid(
@@ -141,4 +149,20 @@ fn setup(
         ))
         .insert(MeshMaterial2d(materials.add(Color::WHITE)))
         .insert(Transform::from_xyz(250.0 - paddle_config.padding, 0., 0.));
+}
+
+fn move_paddle(
+    input: Res<ButtonInput<KeyCode>>,
+    player_config: Res<PlayerConfig>,
+    mut controller: Single<&mut KinematicCharacterController, With<Player>>,
+) {
+    let mut direction = Vec2::ZERO;
+
+    if input.pressed(KeyCode::ArrowUp) {
+        direction.y = 1.;
+    }
+    if input.pressed(KeyCode::ArrowDown) {
+        direction.y = -1.;
+    }
+    controller.translation = Some(direction * player_config.speed);
 }
