@@ -1,4 +1,4 @@
-use bevy::{math::VectorSpace, prelude::*};
+use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 
@@ -15,7 +15,10 @@ struct MainCamera;
 struct Wall;
 
 #[derive(Component)]
-struct Goal;
+enum Goal {
+    Home,
+    Away,
+}
 
 #[derive(Component)]
 struct Ball;
@@ -40,6 +43,15 @@ struct PlayerConfig {
     speed: f32,
 }
 
+#[derive(Resource, Default)]
+struct Scoreboard {
+    home_goal_id: Option<Entity>,
+    away_goal_id: Option<Entity>,
+    ball_goal_id: Option<Entity>,
+    home: usize,
+    away: usize,
+}
+
 fn main() {
     let mut app = App::new();
 
@@ -56,10 +68,11 @@ fn main() {
             padding: 5.0,
         })
         .insert_resource(PlayerConfig { speed: 5.0 })
+        .insert_resource(Scoreboard::default())
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
-        .add_systems(Update, (move_paddle, respawn_ball))
+        .add_systems(Update, (move_paddle, tally_score))
         .run();
 }
 
@@ -67,6 +80,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut scoreboard: ResMut<Scoreboard>,
     ball_config: Res<BallConfig>,
     paddle_config: Res<PaddleConfig>,
 ) {
@@ -102,43 +116,52 @@ fn setup(
         .insert(MeshMaterial2d(materials.add(Color::WHITE)))
         .insert(Transform::from_xyz(0., 125., 0.));
 
-    commands
-        .spawn(Goal)
-        .insert(Collider::cuboid(paddle_config.width / 2., 125.))
-        .insert(Sensor)
-        .insert(ActiveEvents::COLLISION_EVENTS)
-        .insert(Transform::from_xyz(250., 0., 0.));
+    scoreboard.home_goal_id = Some(
+        commands
+            .spawn(Goal::Home)
+            .insert(Collider::cuboid(paddle_config.width / 2., 125.))
+            .insert(Sensor)
+            .insert(ActiveEvents::COLLISION_EVENTS)
+            .insert(Transform::from_xyz(250., 0., 0.))
+            .id(),
+    );
 
-    commands
-        .spawn(Goal)
-        .insert(Collider::cuboid(paddle_config.width / 2., 125.))
-        .insert(Sensor)
-        .insert(ActiveEvents::COLLISION_EVENTS)
-        .insert(Transform::from_xyz(-250., 0., 0.));
+    scoreboard.away_goal_id = Some(
+        commands
+            .spawn(Goal::Away)
+            .insert(Collider::cuboid(paddle_config.width / 2., 125.))
+            .insert(Sensor)
+            .insert(ActiveEvents::COLLISION_EVENTS)
+            .insert(Transform::from_xyz(-250., 0., 0.))
+            .id(),
+    );
 
     let launch_impulse = if rng.random_bool(0.5) {
         Vec2::new(1., 0.)
     } else {
         Vec2::new(-1., 0.)
     } * ball_config.speed;
-    commands
-        .spawn(Ball)
-        .insert(RigidBody::Dynamic)
-        .insert(GravityScale(0.))
-        .insert(Ccd::enabled())
-        .insert(ExternalImpulse {
-            impulse: launch_impulse,
-            torque_impulse: 0.,
-        })
-        .insert(Restitution {
-            coefficient: ball_config.bounciness,
-            combine_rule: CoefficientCombineRule::Max,
-        })
-        .insert(Collider::ball(ball_config.size))
-        .insert(ColliderMassProperties::Mass(ball_config.mass))
-        .insert(Mesh2d(meshes.add(Circle::new(ball_config.size))))
-        .insert(MeshMaterial2d(materials.add(Color::WHITE)))
-        .insert(Transform::from_xyz(0., 0., 0.));
+    scoreboard.ball_goal_id = Some(
+        commands
+            .spawn(Ball)
+            .insert(RigidBody::Dynamic)
+            .insert(GravityScale(0.))
+            .insert(Ccd::enabled())
+            .insert(ExternalImpulse {
+                impulse: launch_impulse,
+                torque_impulse: 0.,
+            })
+            .insert(Restitution {
+                coefficient: ball_config.bounciness,
+                combine_rule: CoefficientCombineRule::Max,
+            })
+            .insert(Collider::ball(ball_config.size))
+            .insert(ColliderMassProperties::Mass(ball_config.mass))
+            .insert(Mesh2d(meshes.add(Circle::new(ball_config.size))))
+            .insert(MeshMaterial2d(materials.add(Color::WHITE)))
+            .insert(Transform::from_xyz(0., 0., 0.))
+            .id(),
+    );
 
     commands
         .spawn(Paddle)
@@ -185,13 +208,11 @@ fn move_paddle(
     controller.translation = Some(direction * player_config.speed);
 }
 
-fn respawn_ball(
-    mut ball_transform: Single<&mut Transform, With<Ball>>,
+fn tally_score(
+    mut scoreboard: ResMut<Scoreboard>,
     mut collision_events: MessageReader<CollisionEvent>,
 ) {
     for collision_event in collision_events.read() {
-        if let CollisionEvent::Stopped(_, _, _) = collision_event {
-            ball_transform.translation = Vec3::ZERO;
-        }
+        if let CollisionEvent::Stopped(emitter, receiver, _) = collision_event {}
     }
 }
