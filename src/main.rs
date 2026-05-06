@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{math::VectorSpace, prelude::*};
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 
@@ -13,6 +13,9 @@ struct MainCamera;
 
 #[derive(Component)]
 struct Wall;
+
+#[derive(Component)]
+struct Goal;
 
 #[derive(Component)]
 struct Ball;
@@ -56,7 +59,7 @@ fn main() {
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
-        .add_systems(Update, move_paddle)
+        .add_systems(Update, (move_paddle, respawn_ball))
         .run();
 }
 
@@ -99,6 +102,20 @@ fn setup(
         .insert(MeshMaterial2d(materials.add(Color::WHITE)))
         .insert(Transform::from_xyz(0., 125., 0.));
 
+    commands
+        .spawn(Goal)
+        .insert(Collider::cuboid(paddle_config.width / 2., 125.))
+        .insert(Sensor)
+        .insert(ActiveEvents::COLLISION_EVENTS)
+        .insert(Transform::from_xyz(250., 0., 0.));
+
+    commands
+        .spawn(Goal)
+        .insert(Collider::cuboid(paddle_config.width / 2., 125.))
+        .insert(Sensor)
+        .insert(ActiveEvents::COLLISION_EVENTS)
+        .insert(Transform::from_xyz(-250., 0., 0.));
+
     let launch_impulse = if rng.random_bool(0.5) {
         Vec2::new(1., 0.)
     } else {
@@ -108,6 +125,7 @@ fn setup(
         .spawn(Ball)
         .insert(RigidBody::Dynamic)
         .insert(GravityScale(0.))
+        .insert(Ccd::enabled())
         .insert(ExternalImpulse {
             impulse: launch_impulse,
             torque_impulse: 0.,
@@ -165,4 +183,15 @@ fn move_paddle(
         direction.y = -1.;
     }
     controller.translation = Some(direction * player_config.speed);
+}
+
+fn respawn_ball(
+    mut ball_transform: Single<&mut Transform, With<Ball>>,
+    mut collision_events: MessageReader<CollisionEvent>,
+) {
+    for collision_event in collision_events.read() {
+        if let CollisionEvent::Stopped(_, _, _) = collision_event {
+            ball_transform.translation = Vec3::ZERO;
+        }
+    }
 }
