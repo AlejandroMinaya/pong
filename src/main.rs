@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{math::VectorSpace, prelude::*};
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 
@@ -149,6 +149,7 @@ fn setup(
         commands
             .spawn(Ball)
             .insert(RigidBody::Dynamic)
+            .insert(Velocity::zero())
             .insert(GravityScale(0.))
             .insert(Ccd::enabled())
             .insert(ExternalImpulse::default())
@@ -246,18 +247,19 @@ fn triage_goal_events(
 
 fn tally_score(mut scoreboard: ResMut<Scoreboard>, mut goal_reader: MessageReader<GoalScored>) {
     for goal_event in goal_reader.read() {
+        scoreboard.ball_in_field = false;
         match goal_event.affected_goal {
             Goal::Home => scoreboard.away += 1,
             Goal::Away => scoreboard.home += 1,
         }
         println!("Home: {} - Away: {}", scoreboard.home, scoreboard.away);
-        scoreboard.ball_in_field = false;
     }
 }
 fn reset_ball(
     ball_config: Res<BallConfig>,
     mut scoreboard: ResMut<Scoreboard>,
     mut transform: Single<&mut Transform, With<Ball>>,
+    mut velocity: Single<&mut Velocity, With<Ball>>,
     mut external_impulse: Single<&mut ExternalImpulse, With<Ball>>,
 ) {
     if scoreboard.ball_in_field {
@@ -266,6 +268,10 @@ fn reset_ball(
     let mut rng = rand::rng();
 
     transform.translation = Vec3::ZERO;
+    transform.rotation = Quat::from_xyzw(0., 0., 0., 0.);
+    velocity.linvel = Vec2::ZERO;
+    velocity.angvel = 0.;
+
     let launch_impulse = if rng.random_bool(0.5) {
         Vec2::new(1., 0.)
     } else {
