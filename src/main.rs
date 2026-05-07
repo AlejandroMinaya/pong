@@ -1,4 +1,4 @@
-use bevy::{math::VectorSpace, prelude::*};
+use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 
@@ -34,6 +34,7 @@ struct BallConfig {
     size: f32,
     mass: f32,
     bounciness: f32,
+    serve_delay: f32,
 }
 
 #[derive(Resource)]
@@ -56,6 +57,7 @@ struct Scoreboard {
     home: usize,
     away: usize,
     ball_in_field: bool,
+    serve_timer: Timer,
 }
 
 fn main() {
@@ -67,6 +69,7 @@ fn main() {
             size: 2.5,
             mass: 0.56,
             bounciness: 1.0,
+            serve_delay: 2.0,
         })
         .insert_resource(PaddleConfig {
             height: 20.0,
@@ -165,6 +168,7 @@ fn setup(
             .id(),
     );
     scoreboard.ball_in_field = false;
+    scoreboard.serve_timer = Timer::from_seconds(ball_config.serve_delay, TimerMode::Once);
 
     commands
         .spawn(Paddle)
@@ -257,6 +261,7 @@ fn tally_score(mut scoreboard: ResMut<Scoreboard>, mut goal_reader: MessageReade
 }
 fn reset_ball(
     ball_config: Res<BallConfig>,
+    time: Res<Time>,
     mut scoreboard: ResMut<Scoreboard>,
     mut transform: Single<&mut Transform, With<Ball>>,
     mut velocity: Single<&mut Velocity, With<Ball>>,
@@ -265,19 +270,24 @@ fn reset_ball(
     if scoreboard.ball_in_field {
         return;
     }
-    let mut rng = rand::rng();
 
     transform.translation = Vec3::ZERO;
     transform.rotation = Quat::from_xyzw(0., 0., 0., 0.);
     velocity.linvel = Vec2::ZERO;
     velocity.angvel = 0.;
 
+    if !scoreboard.serve_timer.is_finished() {
+        scoreboard.serve_timer.tick(time.delta());
+        return;
+    }
+    scoreboard.serve_timer.reset();
+
+    let mut rng = rand::rng();
     let launch_impulse = if rng.random_bool(0.5) {
         Vec2::new(1., 0.)
     } else {
         Vec2::new(-1., 0.)
     } * ball_config.speed;
-
     external_impulse.impulse = launch_impulse;
     external_impulse.torque_impulse = 0.;
 
