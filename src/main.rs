@@ -20,6 +20,11 @@ enum Goal {
     Away,
 }
 
+#[derive(Message)]
+struct GoalScored {
+    affected_goal: Goal,
+}
+
 #[derive(Component)]
 struct Ball;
 
@@ -71,8 +76,9 @@ fn main() {
         .insert_resource(Scoreboard::default())
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugins(RapierDebugRenderPlugin::default())
+        .add_message::<GoalScored>()
         .add_systems(Startup, setup)
-        .add_systems(Update, (move_paddle, tally_score))
+        .add_systems(Update, (move_paddle, triage_goal_events, tally_score))
         .run();
 }
 
@@ -208,11 +214,49 @@ fn move_paddle(
     controller.translation = Some(direction * player_config.speed);
 }
 
-fn tally_score(
+fn triage_goal_events(
     mut scoreboard: ResMut<Scoreboard>,
     mut collision_events: MessageReader<CollisionEvent>,
+    mut goal_writer: MessageWriter<GoalScored>,
 ) {
     for collision_event in collision_events.read() {
-        if let CollisionEvent::Stopped(emitter, receiver, _) = collision_event {}
+        if let (
+            CollisionEvent::Stopped(emitter, receiver, _),
+            Some(home_goal),
+            Some(away_goal),
+            Some(ball),
+        ) = (
+            collision_event,
+            scoreboard.home_goal_id,
+            scoreboard.away_goal_id,
+            scoreboard.ball_goal_id,
+        ) && *receiver == ball
+        {
+            if *emitter == home_goal {
+                goal_writer.write(GoalScored {
+                    affected_goal: Goal::Home,
+                });
+                scoreboard.away += 1;
+                continue;
+            }
+            if *emitter == away_goal {
+                goal_writer.write(GoalScored {
+                    affected_goal: Goal::Away,
+                });
+                scoreboard.home += 1;
+                continue;
+            }
+        }
+    }
+}
+
+fn tally_score(
+    mut goal_reader: MessageReader<GoalScored>,
+    mut ball_transform: Single<&mut Transform, With<Ball>>,
+    scoreboard: Res<Scoreboard>,
+) {
+    for _ in goal_reader.read() {
+        ball_transform.translation = Vec3::ZERO;
+        println!("Home: {} - Away: {}", scoreboard.home, scoreboard.away);
     }
 }
