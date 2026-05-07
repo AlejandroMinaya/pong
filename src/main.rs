@@ -55,6 +55,7 @@ struct Scoreboard {
     ball_goal_id: Option<Entity>,
     home: usize,
     away: usize,
+    ball_in_field: bool,
 }
 
 fn main() {
@@ -78,7 +79,10 @@ fn main() {
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_message::<GoalScored>()
         .add_systems(Startup, setup)
-        .add_systems(Update, (move_paddle, triage_goal_events, tally_score))
+        .add_systems(
+            Update,
+            (move_paddle, triage_goal_events, tally_score, reset_ball),
+        )
         .run();
 }
 
@@ -90,7 +94,6 @@ fn setup(
     ball_config: Res<BallConfig>,
     paddle_config: Res<PaddleConfig>,
 ) {
-    let mut rng = rand::rng();
     commands
         .spawn(MainCamera)
         .insert(Camera2d)
@@ -142,21 +145,13 @@ fn setup(
             .id(),
     );
 
-    let launch_impulse = if rng.random_bool(0.5) {
-        Vec2::new(1., 0.)
-    } else {
-        Vec2::new(-1., 0.)
-    } * ball_config.speed;
     scoreboard.ball_goal_id = Some(
         commands
             .spawn(Ball)
             .insert(RigidBody::Dynamic)
             .insert(GravityScale(0.))
             .insert(Ccd::enabled())
-            .insert(ExternalImpulse {
-                impulse: launch_impulse,
-                torque_impulse: 0.,
-            })
+            .insert(ExternalImpulse::default())
             .insert(Restitution {
                 coefficient: ball_config.bounciness,
                 combine_rule: CoefficientCombineRule::Max,
@@ -168,6 +163,7 @@ fn setup(
             .insert(Transform::from_xyz(0., 0., 0.))
             .id(),
     );
+    scoreboard.ball_in_field = false;
 
     commands
         .spawn(Paddle)
@@ -215,7 +211,7 @@ fn move_paddle(
 }
 
 fn triage_goal_events(
-    mut scoreboard: ResMut<Scoreboard>,
+    scoreboard: Res<Scoreboard>,
     mut collision_events: MessageReader<CollisionEvent>,
     mut goal_writer: MessageWriter<GoalScored>,
 ) {
@@ -236,27 +232,48 @@ fn triage_goal_events(
                 goal_writer.write(GoalScored {
                     affected_goal: Goal::Home,
                 });
-                scoreboard.away += 1;
                 continue;
             }
             if *emitter == away_goal {
                 goal_writer.write(GoalScored {
                     affected_goal: Goal::Away,
                 });
-                scoreboard.home += 1;
                 continue;
             }
         }
     }
 }
 
-fn tally_score(
-    mut goal_reader: MessageReader<GoalScored>,
-    mut ball_transform: Single<&mut Transform, With<Ball>>,
-    scoreboard: Res<Scoreboard>,
-) {
-    for _ in goal_reader.read() {
-        ball_transform.translation = Vec3::ZERO;
+fn tally_score(mut scoreboard: ResMut<Scoreboard>, mut goal_reader: MessageReader<GoalScored>) {
+    for goal_event in goal_reader.read() {
+        match goal_event.affected_goal {
+            Goal::Home => scoreboard.away += 1,
+            Goal::Away => scoreboard.home += 1,
+        }
         println!("Home: {} - Away: {}", scoreboard.home, scoreboard.away);
+        scoreboard.ball_in_field = false;
     }
+}
+fn reset_ball(
+    ball_config: Res<BallConfig>,
+    mut scoreboard: ResMut<Scoreboard>,
+    mut transform: Single<&mut Transform, With<Ball>>,
+    mut external_impulse: Single<&mut ExternalImpulse, With<Ball>>,
+) {
+    if scoreboard.ball_in_field {
+        return;
+    }
+    let mut rng = rand::rng();
+
+    transform.translation = Vec3::ZERO;
+    let launch_impulse = if rng.random_bool(0.5) {
+        Vec2::new(1., 0.)
+    } else {
+        Vec2::new(-1., 0.)
+    } * ball_config.speed;
+
+    external_impulse.impulse = launch_impulse;
+    external_impulse.torque_impulse = 0.;
+
+    scoreboard.ball_in_field = true;
 }
