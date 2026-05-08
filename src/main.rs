@@ -6,6 +6,9 @@ use rand::prelude::*;
 struct Player;
 
 #[derive(Component)]
+struct Opponent;
+
+#[derive(Component)]
 struct Paddle;
 
 #[derive(Component)]
@@ -49,6 +52,11 @@ struct PlayerConfig {
     speed: f32,
 }
 
+#[derive(Resource)]
+struct OpponentConfig {
+    reflex: f32,
+}
+
 #[derive(Resource, Default)]
 struct Scoreboard {
     home_goal_id: Option<Entity>,
@@ -77,14 +85,21 @@ fn main() {
             padding: 5.0,
         })
         .insert_resource(PlayerConfig { speed: 5.0 })
+        .insert_resource(OpponentConfig { reflex: 10.0 })
         .insert_resource(Scoreboard::default())
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-        .add_plugins(RapierDebugRenderPlugin::default())
+        // .add_plugins(RapierDebugRenderPlugin::default())
         .add_message::<GoalScored>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
-            (move_paddle, triage_goal_events, tally_score, reset_ball),
+            (
+                move_paddle,
+                move_opponent,
+                triage_goal_events,
+                tally_score,
+                reset_ball,
+            ),
         )
         .run();
 }
@@ -171,7 +186,8 @@ fn setup(
     scoreboard.serve_timer = Timer::from_seconds(ball_config.serve_delay, TimerMode::Once);
 
     commands
-        .spawn(Paddle)
+        .spawn(Opponent)
+        .insert(Paddle)
         .insert(RigidBody::KinematicPositionBased)
         .insert(Collider::cuboid(
             paddle_config.width / 2.,
@@ -213,6 +229,22 @@ fn move_paddle(
         direction.y = -1.;
     }
     controller.translation = Some(direction * player_config.speed);
+}
+
+fn move_opponent(
+    time: Res<Time>,
+    opponent_config: Res<OpponentConfig>,
+    ball_transform: Single<&Transform, (With<Ball>, Without<Opponent>)>,
+    mut opponent_transform: Single<&mut Transform, (With<Opponent>, Without<Ball>)>,
+) {
+    let target = Vec3 {
+        y: ball_transform.translation.y,
+        x: opponent_transform.translation.x,
+        z: opponent_transform.translation.z,
+    };
+    opponent_transform
+        .translation
+        .smooth_nudge(&target, opponent_config.reflex, time.delta_secs());
 }
 
 fn triage_goal_events(
