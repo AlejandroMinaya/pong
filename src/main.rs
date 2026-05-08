@@ -29,7 +29,9 @@ struct GoalScored {
 }
 
 #[derive(Message)]
-struct SwingBallHit;
+struct SwingBallHit {
+    direction: Vec2,
+}
 
 #[derive(Component)]
 struct Ball;
@@ -83,13 +85,13 @@ fn main() {
             size: 2.5,
             mass: 0.56,
             bounciness: 1.0,
-            serve_delay: 2.0,
+            serve_delay: 1.0,
         })
         .insert_resource(PaddleConfig {
-            height: 45.0,
+            height: 30.0,
             width: 5.0,
             padding: 5.0,
-            strength: 50.0,
+            strength: 10.0,
         })
         .insert_resource(PlayerConfig { speed: 5.0 })
         .insert_resource(OpponentConfig { reflex: 10.0 })
@@ -232,7 +234,7 @@ fn setup(
             .insert(RigidBody::KinematicPositionBased)
             .insert(LockedAxes::TRANSLATION_LOCKED_X)
             .insert(Restitution {
-                coefficient: 1.,
+                coefficient: 0.,
                 combine_rule: CoefficientCombineRule::Max,
             })
             .insert(Collider::cuboid(
@@ -256,12 +258,12 @@ fn move_paddle(
     let mut direction = Vec2::ZERO;
 
     if input.pressed(KeyCode::ArrowUp) {
-        direction.y = 1.;
+        direction.y = 1. * player_config.speed;
     }
     if input.pressed(KeyCode::ArrowDown) {
-        direction.y = -1.;
+        direction.y = -1. * player_config.speed;
     }
-    controller.translation = Some(direction * player_config.speed);
+    controller.translation = Some(direction);
 }
 
 fn move_opponent(
@@ -315,10 +317,14 @@ fn triage_goal_events(
                     });
                 }
                 n if n == player => {
-                    swing_writer.write(SwingBallHit);
+                    swing_writer.write(SwingBallHit {
+                        direction: Vec2::new(-1., 0.),
+                    });
                 }
                 n if n == opponent => {
-                    swing_writer.write(SwingBallHit);
+                    swing_writer.write(SwingBallHit {
+                        direction: Vec2::new(1., 0.),
+                    });
                 }
                 _ => println!("Unhandled emitter: {:?}", emitter),
             }
@@ -375,12 +381,13 @@ fn hit_ball(
     paddle_config: Res<PaddleConfig>,
     mut hit_reader: MessageReader<SwingBallHit>,
     mut external_impulse: Single<&mut ExternalImpulse, With<Ball>>,
+    mut velocity: Single<&mut Velocity, With<Ball>>,
 ) {
-    for _ in hit_reader.read() {
-        external_impulse.impulse =
-            (paddle_config.strength + external_impulse.impulse) * external_impulse.impulse.signum();
-        println!("Hit!");
+    let mut rng = rand::rng();
+    for SwingBallHit { direction } in hit_reader.read() {
+        external_impulse.impulse += direction * paddle_config.strength;
     }
+    velocity.angvel = rng.random_range(-50.0..50.0)
 }
 fn recolor_ball(
     ball_material: Single<&MeshMaterial2d<ColorMaterial>, With<Ball>>,
@@ -390,7 +397,7 @@ fn recolor_ball(
     if let Some(ball_material_handle) = materials.get_mut(*ball_material) {
         ball_material_handle.color = Color::WHITE;
         for _ in hit_reader.read() {
-            ball_material_handle.color = Color::LinearRgba(LinearRgba::new(1., 0., 0., 1.));
+            ball_material_handle.color = Color::from(Srgba::RED);
         }
     }
 }
