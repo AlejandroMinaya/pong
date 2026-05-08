@@ -28,6 +28,9 @@ struct GoalScored {
     affected_goal: Goal,
 }
 
+#[derive(Message)]
+struct SwingBallHit;
+
 #[derive(Component)]
 struct Ball;
 
@@ -45,6 +48,7 @@ struct PaddleConfig {
     height: f32,
     width: f32,
     padding: f32,
+    strength: f32,
 }
 
 #[derive(Resource)]
@@ -62,6 +66,8 @@ struct Scoreboard {
     home_goal_id: Option<Entity>,
     away_goal_id: Option<Entity>,
     ball_goal_id: Option<Entity>,
+    player_id: Option<Entity>,
+    opponent_id: Option<Entity>,
     home: usize,
     away: usize,
     ball_in_field: bool,
@@ -83,6 +89,7 @@ fn main() {
             height: 45.0,
             width: 5.0,
             padding: 5.0,
+            strength: 50.0,
         })
         .insert_resource(PlayerConfig { speed: 5.0 })
         .insert_resource(OpponentConfig { reflex: 10.0 })
@@ -90,6 +97,7 @@ fn main() {
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         // .add_plugins(RapierDebugRenderPlugin::default())
         .add_message::<GoalScored>()
+        .add_message::<SwingBallHit>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -99,6 +107,8 @@ fn main() {
                 triage_goal_events,
                 tally_score,
                 reset_ball,
+                hit_ball,
+                recolor_ball,
             ),
         )
         .run();
@@ -156,7 +166,6 @@ fn setup(
             .spawn(Goal::Home)
             .insert(Collider::cuboid(paddle_config.width / 2., 125.))
             .insert(Sensor)
-            .insert(ActiveEvents::COLLISION_EVENTS)
             .insert(Transform::from_xyz(250., 0., 0.))
             .id(),
     );
@@ -166,7 +175,6 @@ fn setup(
             .spawn(Goal::Away)
             .insert(Collider::cuboid(paddle_config.width / 2., 125.))
             .insert(Sensor)
-            .insert(ActiveEvents::COLLISION_EVENTS)
             .insert(Transform::from_xyz(-250., 0., 0.))
             .id(),
     );
@@ -187,50 +195,57 @@ fn setup(
             .insert(ColliderMassProperties::Mass(ball_config.mass))
             .insert(Mesh2d(meshes.add(Circle::new(ball_config.size))))
             .insert(MeshMaterial2d(materials.add(Color::WHITE)))
+            .insert(ActiveEvents::COLLISION_EVENTS)
             .insert(Transform::from_xyz(0., 0., 0.))
             .id(),
     );
     scoreboard.ball_in_field = false;
     scoreboard.serve_timer = Timer::from_seconds(ball_config.serve_delay, TimerMode::Once);
 
-    commands
-        .spawn(Opponent)
-        .insert(Paddle)
-        .insert(RigidBody::KinematicPositionBased)
-        .insert(LockedAxes::TRANSLATION_LOCKED_X)
-        .insert(Restitution {
-            coefficient: 1.,
-            combine_rule: CoefficientCombineRule::Max,
-        })
-        .insert(Collider::cuboid(
-            paddle_config.width / 2.,
-            paddle_config.height / 2.,
-        ))
-        .insert(Mesh2d(
-            meshes.add(Rectangle::new(paddle_config.width, paddle_config.height)),
-        ))
-        .insert(MeshMaterial2d(materials.add(Color::WHITE)))
-        .insert(Transform::from_xyz(paddle_config.padding - 250.0, 0., 0.));
+    scoreboard.opponent_id = Some(
+        commands
+            .spawn(Opponent)
+            .insert(Paddle)
+            .insert(RigidBody::KinematicPositionBased)
+            .insert(LockedAxes::TRANSLATION_LOCKED_X)
+            .insert(Restitution {
+                coefficient: 1.,
+                combine_rule: CoefficientCombineRule::Max,
+            })
+            .insert(Collider::cuboid(
+                paddle_config.width / 2.,
+                paddle_config.height / 2.,
+            ))
+            .insert(Mesh2d(
+                meshes.add(Rectangle::new(paddle_config.width, paddle_config.height)),
+            ))
+            .insert(MeshMaterial2d(materials.add(Color::WHITE)))
+            .insert(Transform::from_xyz(paddle_config.padding - 250.0, 0., 0.))
+            .id(),
+    );
 
-    commands
-        .spawn(Player)
-        .insert(KinematicCharacterController::default())
-        .insert(Paddle)
-        .insert(RigidBody::KinematicPositionBased)
-        .insert(LockedAxes::TRANSLATION_LOCKED_X)
-        .insert(Restitution {
-            coefficient: 1.,
-            combine_rule: CoefficientCombineRule::Max,
-        })
-        .insert(Collider::cuboid(
-            paddle_config.width / 2.,
-            paddle_config.height / 2.,
-        ))
-        .insert(Mesh2d(
-            meshes.add(Rectangle::new(paddle_config.width, paddle_config.height)),
-        ))
-        .insert(MeshMaterial2d(materials.add(Color::WHITE)))
-        .insert(Transform::from_xyz(250.0 - paddle_config.padding, 0., 0.));
+    scoreboard.player_id = Some(
+        commands
+            .spawn(Player)
+            .insert(KinematicCharacterController::default())
+            .insert(Paddle)
+            .insert(RigidBody::KinematicPositionBased)
+            .insert(LockedAxes::TRANSLATION_LOCKED_X)
+            .insert(Restitution {
+                coefficient: 1.,
+                combine_rule: CoefficientCombineRule::Max,
+            })
+            .insert(Collider::cuboid(
+                paddle_config.width / 2.,
+                paddle_config.height / 2.,
+            ))
+            .insert(Mesh2d(
+                meshes.add(Rectangle::new(paddle_config.width, paddle_config.height)),
+            ))
+            .insert(MeshMaterial2d(materials.add(Color::WHITE)))
+            .insert(Transform::from_xyz(250.0 - paddle_config.padding, 0., 0.))
+            .id(),
+    );
 }
 
 fn move_paddle(
@@ -269,6 +284,7 @@ fn triage_goal_events(
     scoreboard: Res<Scoreboard>,
     mut collision_events: MessageReader<CollisionEvent>,
     mut goal_writer: MessageWriter<GoalScored>,
+    mut swing_writer: MessageWriter<SwingBallHit>,
 ) {
     for collision_event in collision_events.read() {
         if let (
@@ -276,24 +292,35 @@ fn triage_goal_events(
             Some(home_goal),
             Some(away_goal),
             Some(ball),
+            Some(player),
+            Some(opponent),
         ) = (
             collision_event,
             scoreboard.home_goal_id,
             scoreboard.away_goal_id,
             scoreboard.ball_goal_id,
+            scoreboard.player_id,
+            scoreboard.opponent_id,
         ) && *receiver == ball
         {
-            if *emitter == home_goal {
-                goal_writer.write(GoalScored {
-                    affected_goal: Goal::Home,
-                });
-                continue;
-            }
-            if *emitter == away_goal {
-                goal_writer.write(GoalScored {
-                    affected_goal: Goal::Away,
-                });
-                continue;
+            match *emitter {
+                n if n == home_goal => {
+                    goal_writer.write(GoalScored {
+                        affected_goal: Goal::Home,
+                    });
+                }
+                n if n == away_goal => {
+                    goal_writer.write(GoalScored {
+                        affected_goal: Goal::Away,
+                    });
+                }
+                n if n == player => {
+                    swing_writer.write(SwingBallHit);
+                }
+                n if n == opponent => {
+                    swing_writer.write(SwingBallHit);
+                }
+                _ => println!("Unhandled emitter: {:?}", emitter),
             }
         }
     }
@@ -342,4 +369,28 @@ fn reset_ball(
     external_impulse.torque_impulse = 0.;
 
     scoreboard.ball_in_field = true;
+}
+
+fn hit_ball(
+    paddle_config: Res<PaddleConfig>,
+    mut hit_reader: MessageReader<SwingBallHit>,
+    mut external_impulse: Single<&mut ExternalImpulse, With<Ball>>,
+) {
+    for _ in hit_reader.read() {
+        external_impulse.impulse =
+            (paddle_config.strength + external_impulse.impulse) * external_impulse.impulse.signum();
+        println!("Hit!");
+    }
+}
+fn recolor_ball(
+    ball_material: Single<&MeshMaterial2d<ColorMaterial>, With<Ball>>,
+    mut hit_reader: MessageReader<SwingBallHit>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    if let Some(ball_material_handle) = materials.get_mut(*ball_material) {
+        ball_material_handle.color = Color::WHITE;
+        for _ in hit_reader.read() {
+            ball_material_handle.color = Color::LinearRgba(LinearRgba::new(1., 0., 0., 1.));
+        }
+    }
 }
