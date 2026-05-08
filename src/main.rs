@@ -80,7 +80,7 @@ fn main() {
             serve_delay: 2.0,
         })
         .insert_resource(PaddleConfig {
-            height: 20.0,
+            height: 45.0,
             width: 5.0,
             padding: 5.0,
         })
@@ -131,6 +131,10 @@ fn setup(
         .spawn(Wall)
         .insert(RigidBody::Fixed)
         .insert(Collider::cuboid(250., 2.5))
+        .insert(Friction {
+            coefficient: 0.,
+            combine_rule: CoefficientCombineRule::Min,
+        })
         .insert(Mesh2d(meshes.add(Rectangle::new(500., 5.))))
         .insert(MeshMaterial2d(materials.add(Color::WHITE)))
         .insert(Transform::from_xyz(0., -125., 0.));
@@ -139,6 +143,10 @@ fn setup(
         .spawn(Wall)
         .insert(RigidBody::Fixed)
         .insert(Collider::cuboid(250., 2.5))
+        .insert(Friction {
+            coefficient: 0.,
+            combine_rule: CoefficientCombineRule::Min,
+        })
         .insert(Mesh2d(meshes.add(Rectangle::new(500., 5.))))
         .insert(MeshMaterial2d(materials.add(Color::WHITE)))
         .insert(Transform::from_xyz(0., 125., 0.));
@@ -189,6 +197,11 @@ fn setup(
         .spawn(Opponent)
         .insert(Paddle)
         .insert(RigidBody::KinematicPositionBased)
+        .insert(LockedAxes::TRANSLATION_LOCKED_X)
+        .insert(Restitution {
+            coefficient: 1.,
+            combine_rule: CoefficientCombineRule::Max,
+        })
         .insert(Collider::cuboid(
             paddle_config.width / 2.,
             paddle_config.height / 2.,
@@ -204,6 +217,11 @@ fn setup(
         .insert(KinematicCharacterController::default())
         .insert(Paddle)
         .insert(RigidBody::KinematicPositionBased)
+        .insert(LockedAxes::TRANSLATION_LOCKED_X)
+        .insert(Restitution {
+            coefficient: 1.,
+            combine_rule: CoefficientCombineRule::Max,
+        })
         .insert(Collider::cuboid(
             paddle_config.width / 2.,
             paddle_config.height / 2.,
