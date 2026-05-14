@@ -23,6 +23,12 @@ enum Goal {
     Away,
 }
 
+#[derive(Component)]
+struct HomeGoalUI;
+
+#[derive(Component)]
+struct AwayGoalUI;
+
 #[derive(Message)]
 struct GoalScored {
     affected_goal: Goal,
@@ -171,6 +177,17 @@ fn setup(
             .insert(Transform::from_xyz(250., 0., 0.))
             .id(),
     );
+    commands
+        .spawn(HomeGoalUI)
+        .insert(Node {
+            position_type: PositionType::Absolute,
+            top: px(10.),
+            right: px(10.),
+            ..default()
+        })
+        .insert(Text::new("0"))
+        .insert(TextColor(Color::WHITE))
+        .insert(TextLayout::new_with_justify(Justify::Center));
 
     scoreboard.away_goal_id = Some(
         commands
@@ -180,6 +197,17 @@ fn setup(
             .insert(Transform::from_xyz(-250., 0., 0.))
             .id(),
     );
+    commands
+        .spawn(AwayGoalUI)
+        .insert(Node {
+            position_type: PositionType::Absolute,
+            top: px(10.),
+            left: px(10.),
+            ..default()
+        })
+        .insert(Text::new("0"))
+        .insert(TextColor(Color::WHITE))
+        .insert(TextLayout::new_with_justify(Justify::Center));
 
     scoreboard.ball_goal_id = Some(
         commands
@@ -258,10 +286,10 @@ fn move_paddle(
     let mut direction = Vec2::ZERO;
 
     if input.pressed(KeyCode::ArrowUp) {
-        direction.y = 1. * player_config.speed;
+        direction.y = player_config.speed;
     }
     if input.pressed(KeyCode::ArrowDown) {
-        direction.y = -1. * player_config.speed;
+        direction.y = -player_config.speed;
     }
     controller.translation = Some(direction);
 }
@@ -332,14 +360,24 @@ fn triage_goal_events(
     }
 }
 
-fn tally_score(mut scoreboard: ResMut<Scoreboard>, mut goal_reader: MessageReader<GoalScored>) {
+fn tally_score(
+    mut scoreboard: ResMut<Scoreboard>,
+    mut goal_reader: MessageReader<GoalScored>,
+    mut home_score_ui: Single<&mut Text, (With<HomeGoalUI>, Without<AwayGoalUI>)>,
+    mut away_score_ui: Single<&mut Text, (With<AwayGoalUI>, Without<HomeGoalUI>)>,
+) {
     for goal_event in goal_reader.read() {
         scoreboard.ball_in_field = false;
         match goal_event.affected_goal {
-            Goal::Home => scoreboard.away += 1,
-            Goal::Away => scoreboard.home += 1,
+            Goal::Home => {
+                scoreboard.away += 1;
+                away_score_ui.0 = scoreboard.away.to_string();
+            }
+            Goal::Away => {
+                scoreboard.home += 1;
+                home_score_ui.0 = scoreboard.home.to_string();
+            }
         }
-        println!("Home: {} - Away: {}", scoreboard.home, scoreboard.away);
     }
 }
 fn reset_ball(
